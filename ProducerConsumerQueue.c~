@@ -18,6 +18,8 @@ Queue* create_queue(int max_elements);
 void enqueue(Queue* Q, int element);
 void dequeue(Queue* Q);
 int front(Queue* Q);
+int end(Queue* Q);
+void print_queue(Queue* Q);
 
 int main(int argc, char* argv[])
 {
@@ -29,7 +31,17 @@ int main(int argc, char* argv[])
 		printf("%d is now queued\n", i);
 	}
 	
-	printf("Frontmost element is %d\n", front(Q*));
+	print_queue(Q);
+	
+	for(i=5; i>0; i--)
+	{
+		printf("Frontmost element is %d\n", front(Q));
+		printf("\nEndmost element is %d\n", end(Q));
+		printf("Dequeuing %d\n", front(Q));
+		dequeue(Q);
+	}
+	
+	print_queue(Q);
 	
 	return 0;
 }
@@ -56,7 +68,7 @@ void enqueue(Queue* Q, int element)
 	{
 		//not empty, possible to add another n - size elements
 		Q->size++;
-		Q->rear++;
+		Q->rear = Q->rear+1;
 		//append 0 to rear if not at capacity -- prevents overflow
 		if(Q->rear == Q->capacity)
 		{
@@ -96,6 +108,44 @@ int front(Queue* Q)
 	{
 		return Q->elements[Q->front];
 	}
+}
+
+int end(Queue* Q)
+{
+	//return the frontmost element of the queue
+	if(Q->size==Q->capacity)
+	{
+		printf("Queue full, cannot add more\n");
+		return 0;
+	}
+	else
+	{
+		return Q->elements[Q->rear];
+	}
+}
+
+void print_queue(Queue* Q)
+{
+	printf("\n--------------\n\n");
+	int i;
+	for(i=0; i < Q->size; i++)
+	{
+		if(i == 0)
+		{
+			printf("Queue: ");
+		}
+		
+		if(i != Q->size - 1)
+		{
+			printf("%d, ", Q->elements[i]);
+		}
+		else
+		{
+			printf("%d.", Q->elements[i]);
+		}
+	}
+	
+	printf("\n\n--------------\n\n");
 }
 
 //buffer
