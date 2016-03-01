@@ -65,10 +65,12 @@ int main(int argc, char* argv[])
 	//join threads
 	for(i=0; i<NUM_PRODUCERS; i++)
 	{
+		printf("Joining producer thread %d\n", i);
 		pthread_join(producers[i], NULL);
 	}
 	for(i=0; i<NUM_CONSUMERS; i++)
 	{
+		printf("Joining consumer thread %d\n", i);
 		pthread_join(consumers[i], NULL);
 	}
 	
@@ -211,7 +213,7 @@ void* consume(void* arg)
 {
 	//consume items in the queue while the queue isn't empty, else wait for empty signal
 	Queue* Q = (Queue*) arg;
-	while(is_done == 0)
+	while(true)
 	{
 		//usleep(250000);
 		pthread_mutex_trylock(&mutex);
@@ -234,7 +236,14 @@ void* consume(void* arg)
 			printf("Queue is empty, consumer waiting...\n");
 			pthread_mutex_unlock(&mutex);
 			pthread_cond_wait(&queue_empty, &mutex);
-			printf("Queue is no longer empty, obtaining item...\n");
+			if(is_done == 0)
+			{
+				printf("Queue is no longer empty, obtaining item...\n");
+			}
+			else
+			{
+				printf("Queue is empty, exiting...\n");
+			}
 		}
 		print_queue(Q);
 		printf("**current transaction**: %d\n", to_produce);
@@ -246,7 +255,7 @@ void* produce(void* arg)
 {
 	//produce and add to queue while under capacity, else broadcast wait signal
 	Queue* Q = (Queue*) arg;
-	while(to_produce < MAX_TRANSACTIONS)
+	while(is_done == 0)
 	{
 		//usleep(250000);
 		pthread_mutex_trylock(&mutex);
@@ -274,12 +283,16 @@ void* produce(void* arg)
 			printf("Queue is no longer full, producer is back to work...\n");
 		}
 		
+		print_queue(Q);
+		
 		if(is_empty(Q) && to_produce >= MAX_TRANSACTIONS)
 		{
 			printf("\n*****is done!******\n");
+			print_queue(Q);
 			is_done = 1;
+			pthread_mutex_unlock(&mutex);
+			pthread_cond_broadcast(&queue_empty);
 		}
-		print_queue(Q);
 	}
 	return NULL;
 }
