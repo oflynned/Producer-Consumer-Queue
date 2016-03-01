@@ -3,23 +3,23 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define NUM_PRODUCERS 2
-#define NUM_CONSUMERS 4
-#define MAX_QUEUE_CAPACITY 128
-#define BUFFER_CAPACITY 2048
-#define UNITS_PER_CONSUMER 64
-#define MAX_TRANSACTIONS 1024
+#define true 1
+#define false 0
+
+#define NUM_PRODUCERS 4
+#define NUM_CONSUMERS 2
+#define MAX_QUEUE_CAPACITY 8
+#define MAX_TRANSACTIONS 256
 
 pthread_t consumers[NUM_CONSUMERS];
 pthread_t producers[NUM_PRODUCERS];
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t buffer_full = PTHREAD_COND_INITIALIZER;
-pthread_cond_t buffer_not_full = PTHREAD_COND_INITIALIZER;
-pthread_cond_t buffer_empty = PTHREAD_COND_INITIALIZER;
+pthread_cond_t queue_full = PTHREAD_COND_INITIALIZER;
+pthread_cond_t queue_empty = PTHREAD_COND_INITIALIZER;
 
 int to_produce = 0;
-int to_consume = MAX_TRANSACTIONS;
+int is_done = 0;
 
 typedef struct Queue
 {
@@ -31,6 +31,7 @@ typedef struct Queue
 } Queue;
 
 Queue* create_queue(int max_elements);
+void destroy_queue(Queue* Q);
 void enqueue(Queue* Q, int element);
 void dequeue(Queue* Q);
 int front(Queue* Q);
@@ -43,7 +44,6 @@ int generate_random_number();
 
 void* consume(void* arg);
 void* produce(void* arg);
-void signal(Queue* Q);
 
 int main(int argc, char* argv[])
 {
@@ -53,10 +53,12 @@ int main(int argc, char* argv[])
 	int i;
 	for(i=0; i<NUM_PRODUCERS; i++)
 	{
+		printf("Created producer thread %d\n", i);
 		pthread_create(&producers[i], NULL, produce, (void*) Q);
 	}
 	for(i=0; i<NUM_CONSUMERS; i++)
 	{
+		printf("Created consumer thread %d\n", i);
 		pthread_create(&consumers[i], NULL, consume, (void*) Q);
 	}
 	
@@ -69,6 +71,8 @@ int main(int argc, char* argv[])
 	{
 		pthread_join(consumers[i], NULL);
 	}
+	
+	destroy_queue(Q);
 	
 	return 0;
 }
@@ -83,6 +87,11 @@ Queue* create_queue(int max_elements)
 	Q->front = 0;
 	Q->rear = -1;
 	return Q;
+}
+
+void destroy_queue(Queue* Q)
+{
+	free(Q);
 }
 
 void enqueue(Queue* Q, int element)
@@ -163,7 +172,7 @@ bool is_empty(Queue* Q)
 
 void print_queue(Queue* Q)
 {
-	printf("\n\n--------------\n\n");
+	printf("\n--------------\n\n");
 	if(Q->size != 0)
 	{
 		int i;
@@ -200,35 +209,37 @@ int generate_random_number()
 
 void* consume(void* arg)
 {
+	//consume items in the queue while the queue isn't empty, else wait for empty signal
 	Queue* Q = (Queue*) arg;
-	while(to_consume > 0)
+	while(is_done == 0)
 	{
-		pthread_mutex_lock(&mutex);
-		if(Q->size == 0)
+		//usleep(250000);
+		pthread_mutex_trylock(&mutex);
+		if(Q->size == Q->capacity)
 		{
-			printf("Queue is empty, consumer waiting...\n");
+			printf("Queue is full, item being consumed...\n");
 			pthread_mutex_unlock(&mutex);
-			pthread_cond_broadcast(&buffer_empty);
-			printf("Queue is no longer empty, obtaining item...\n");
+			pthread_cond_broadcast(&queue_full);
+			dequeue(Q);
 		}
-		else if(Q->size > 0 && Q->size < Q->capacity)
+		else if(Q->size < Q->capacity && !is_empty(Q))
 		{
-			printf("Queue is not empty, item being consumed...\n");
+			printf("Queue is not full, item being consumed...\n");
 			pthread_mutex_unlock(&mutex);
-			pthread_cond_broadcast(&buffer_not_full);
-			to_consume--;
+			pthread_cond_broadcast(&queue_full);
 			dequeue(Q);
 		}
 		else
 		{
-			printf("Queue is full, item being consumed...\n");
+			printf("Queue is empty, consumer waiting...\n");
 			pthread_mutex_unlock(&mutex);
-			pthread_cond_broadcast(&buffer_not_full);
-			to_consume--;
-			dequeue(Q);
+			pthread_cond_wait(&queue_empty, &mutex);
+			printf("Queue is no longer empty, obtaining item...\n");
 		}
 		print_queue(Q);
+		printf("**current transaction**: %d\n", to_produce);
 	}
+	return NULL;
 }
 
 void* produce(void* arg)
@@ -237,30 +248,38 @@ void* produce(void* arg)
 	Queue* Q = (Queue*) arg;
 	while(to_produce < MAX_TRANSACTIONS)
 	{
-		pthread_mutex_lock(&mutex);
-		if(Q->size == Q->capacity)
+		//usleep(250000);
+		pthread_mutex_trylock(&mutex);
+		if(Q->size == 0)
 		{
-			printf("Queue is full, producer is waiting...\n");
-			pthread_mutex_unlock(&mutex);
-			pthread_cond_wait(&buffer_full, &mutex);
-		}
-		else if(Q->size < Q->capacity)
-		{
-			printf("Item added to queue by producer...\n");
-			to_produce++;
-			enqueue(Q, generate_random_number());
-			pthread_mutex_unlock(&mutex);
-			pthread_cond_broadcast(&buffer_not_full);
-		}
-		else
-		{	
 			printf("Queue is empty, item being added...\n");
 			to_produce++;
 			enqueue(Q, generate_random_number());
 			pthread_mutex_unlock(&mutex);
-			pthread_cond_wait(&buffer_not_full, &mutex);
+			pthread_cond_broadcast(&queue_empty);
+		}
+		else if(Q->size>0 & !is_full(Q))
+		{
+			printf("Queue is not full, item being added...\n");
+			to_produce++;
+			enqueue(Q, generate_random_number());
+			pthread_mutex_unlock(&mutex);
+			pthread_cond_broadcast(&queue_empty);
+		}
+		else
+		{
+			printf("Queue is full, producer is waiting...\n");
+			pthread_mutex_unlock(&mutex);
+			pthread_cond_wait(&queue_full, &mutex);
+			printf("Queue is no longer full, producer is back to work...\n");
+		}
+		if(is_empty(Q) && to_produce >= MAX_TRANSACTIONS)
+		{
+			printf("\n*****is done!******\n");
+			is_done = 1;
 		}
 		print_queue(Q);
 	}
+	return NULL;
 }
 
